@@ -1,1 +1,97 @@
-# empty
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: inference_api_gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - API_PORT=8000
+      - API_HOST=0.0.0.0
+      - DATABASE_URL=postgresql://user:password@postgres:5432/inference
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_FALLBACK_MEMORY=false
+      - AUTH_ENABLED=true
+      - DEFAULT_MASTER_KEY=ai_live_master_key_999999
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - inference-net
+
+  inference-worker-cpu:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: inference_worker_cpu
+    environment:
+      - WORKER_ID=worker-cpu-1
+      - WORKER_DEVICE=cpu
+      - DATABASE_URL=postgresql://user:password@postgres:5432/inference
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - inference-net
+
+  inference-worker-gpu:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: inference_worker_gpu
+    environment:
+      - WORKER_ID=worker-gpu-1
+      - WORKER_DEVICE=gpu
+      - DATABASE_URL=postgresql://user:password@postgres:5432/inference
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - inference-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: inference_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - inference-net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: inference_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: inference
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d inference"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - inference-net
+
+networks:
+  inference-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
